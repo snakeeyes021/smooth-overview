@@ -1,0 +1,8 @@
+{
+  "name": "Smooth Overview",
+  "description": "Forces the overview background to use monitor bounds instead of workArea, preventing clipping with docks.",
+  "uuid": "smooth-overview@redfoxlabs.tech",
+  "shell-version": [
+    "49"
+  ]
+}
