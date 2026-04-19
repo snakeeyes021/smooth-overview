@@ -15,41 +15,53 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-import Graphene from 'gi://Graphene';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import { WorkspaceBackground } from 'resource:///org/gnome/shell/ui/workspace.js';
+
+let originalGetWorkArea = null;
 
 export default class SmoothOverviewExtension extends Extension {
     enable() {
-        console.log(`[Smooth Overview] Enabling extension and patching WorkspaceBackground...`);
+        console.log(`[Smooth Overview] Injecting universal Overview workArea bypass...`);
 
-        // 1. Save the original method
-        this._originalUpdateBounds = WorkspaceBackground.prototype._updateRoundedClipBounds;
+        // 1. Save the original GNOME function
+        originalGetWorkArea = Main.layoutManager.getWorkAreaForMonitor;
 
-        // 2. Inject our hijacked method
-        WorkspaceBackground.prototype._updateRoundedClipBounds = function() {
-            const monitor = Main.layoutManager.monitors[this._monitorIndex];
-            const rect = new Graphene.Rect();
+        // 2. Intercept the function
+        Main.layoutManager.getWorkAreaForMonitor = function(monitorIndex) {
+            let rect = originalGetWorkArea.call(this, monitorIndex);
 
-            // Force the background clip to the absolute bounds of the monitor.
-            rect.origin.x = 0;
-            rect.origin.y = 0;
-            rect.size.width = monitor.width;
-            rect.size.height = monitor.height;
+            // 3. THE SNEAKY PART: Catch the static overview AND the slide animation
+            const stack = new Error().stack;
+            if (stack.includes('workspace.js') ||
+                stack.includes('workspaceAnimation.js') ||
+                stack.includes('overviewControls.js')) {
 
-            // Apply the un-clipped geometry
-            this._bgManager.backgroundActor.content.set_rounded_clip_bounds(rect);
+                rect = rect.copy();
+                const monitor = this.monitors[monitorIndex];
+
+                // 4. THE PANEL MATH: Check if this monitor has the top panel
+                const isPrimary = (monitorIndex === Main.layoutManager.primaryIndex);
+                const panelHeight = (isPrimary && Main.panel) ? Main.panel.height : 0;
+
+                // Force all Overview math to use the monitor bounds MINUS the top panel
+                rect.x = monitor.x;
+                rect.y = monitor.y + panelHeight;
+                rect.width = monitor.width;
+                rect.height = monitor.height - panelHeight;
+            }
+
+            return rect;
         };
     }
 
     disable() {
-        console.log(`[Smooth Overview] Disabling extension and restoring original behavior...`);
+        console.log(`[Smooth Overview] Restoring original workArea behavior...`);
 
-        // 3. Put the original method back
-        if (this._originalUpdateBounds) {
-            WorkspaceBackground.prototype._updateRoundedClipBounds = this._originalUpdateBounds;
-            this._originalUpdateBounds = null;
+        // 5. Put everything back to normal
+        if (originalGetWorkArea) {
+            Main.layoutManager.getWorkAreaForMonitor = originalGetWorkArea;
+            originalGetWorkArea = null;
         }
     }
 }
