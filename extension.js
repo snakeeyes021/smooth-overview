@@ -53,15 +53,25 @@ export default class SmoothOverviewExtension extends Extension {
 
             return rect;
         };
+
+        // 5. THE FIX: Force GNOME to dump its layout cache and apply our new math instantly
+        if (global && global.display) {
+            global.display.emit('workareas-changed');
+        }
     }
 
     disable() {
         console.log(`[Smooth Overview] Restoring original workArea behavior...`);
 
-        // 5. Put everything back to normal
+        // 6. Put everything back to normal
         if (originalGetWorkArea) {
             Main.layoutManager.getWorkAreaForMonitor = originalGetWorkArea;
             originalGetWorkArea = null;
+        }
+
+        // 7. THE FIX: Force GNOME to dump its layout cache and revert to standard math
+        if (global && global.display) {
+            global.display.emit('workareas-changed');
         }
     }
 }
