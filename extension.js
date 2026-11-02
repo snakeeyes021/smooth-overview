@@ -35,18 +35,38 @@ const OVERVIEW_CALLERS = [
     'resource:///org/gnome/shell/ui/panel.js:',
 ];
 
+// Dash to Dock adjusts the overview's layout for the dock in closures
+// inside its _prepareMainDash() (it moves the search entry over by the
+// dock's width, for one). Those count as overview callers too, so the
+// overview stays centred on the screen. Dash to Dock's other lookups (where
+// to put the dock itself) are left alone.
+const DASH_TO_DOCK_FILE = '/dash-to-dock@micxgx.gmail.com/docking.js:';
+const DASH_TO_DOCK_OVERVIEW_FUNCTIONS = [
+    '_prepareMainDash',
+    'maybeAdjustBoxSize',
+    'maybeAdjustBoxToDock',
+    'maybeLimitWorkspaceBoxSize',
+];
+
 /**
- * Whether the function that called getWorkAreaForMonitor() lives in one of
- * the overview files. Only the direct caller counts: code that merely runs
- * while the overview is on the stack (a popup, another extension) is left
- * alone.
+ * Whether the function that called getWorkAreaForMonitor() is part of the
+ * overview or the top bar. Only the direct caller counts: code that merely
+ * runs while the overview is on the stack (a popup, another extension) is
+ * left alone.
  *
  * @returns {boolean}
  */
 function calledFromOverview() {
-    // Frame 0 is this function, frame 1 our override, frame 2 the caller.
+    // Frame 0 is this function, frame 1 our override, frame 2 the caller,
+    // written "functionName@file:line:column".
     const caller = new Error().stack.split('\n')[2] ?? '';
-    return OVERVIEW_CALLERS.some(file => caller.includes(file));
+    if (OVERVIEW_CALLERS.some(file => caller.includes(file)))
+        return true;
+
+    if (!caller.includes(DASH_TO_DOCK_FILE))
+        return false;
+    const name = caller.slice(0, caller.indexOf('@'));
+    return DASH_TO_DOCK_OVERVIEW_FUNCTIONS.some(fn => name === fn || name.startsWith(`${fn}/`));
 }
 
 /**
