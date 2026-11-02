@@ -1,9 +1,11 @@
 {
-  "name": "Smooth Overview",
-  "description": "Forces the overview background to use monitor bounds instead of workArea, preventing clipping with docks.",
   "uuid": "smooth-overview@redfoxlabs.tech",
+  "name": "Smooth Overview",
+  "description": "Lets the overview fill the screen behind a fixed dock.\n\nWith Dash to Dock (or another dock) set to stay visible, GNOME shrinks the overview to the space beside the dock, so the background is cut off and the workspaces jump as the overview opens. This extension makes the overview use the whole screen below the top bar instead, and keeps the top bar's clock centred on the screen rather than on the space beside the dock. Windows still maximize and tile around the dock as before.",
+  "url": "https://github.com/snakeeyes021/smooth-overview",
   "shell-version": [
     "49",
     "50"
-  ]
+  ],
+  "version-name": "1.0"
 }

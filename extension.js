@@ -15,63 +15,96 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+
+import Mtk from 'gi://Mtk';
+
+import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Layout from 'resource:///org/gnome/shell/ui/layout.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-let originalGetWorkArea = null;
+// The overview sizes its workspaces and their backgrounds from the monitor's
+// work area, which a fixed dock shrinks, and the top bar centres its clock
+// on the work area too. These are the files whose work area lookups get the
+// monitor minus the top bar instead, so the overview fills the screen behind
+// the dock and the clock stays in the middle of the screen. Everything else
+// (window placement, maximizing, popups, the dock itself) keeps the real
+// work area.
+const OVERVIEW_CALLERS = [
+    'resource:///org/gnome/shell/ui/workspace.js:',
+    'resource:///org/gnome/shell/ui/overviewControls.js:',
+    'resource:///org/gnome/shell/ui/panel.js:',
+];
+
+/**
+ * Whether the function that called getWorkAreaForMonitor() lives in one of
+ * the overview files. Only the direct caller counts: code that merely runs
+ * while the overview is on the stack (a popup, another extension) is left
+ * alone.
+ *
+ * @returns {boolean}
+ */
+function calledFromOverview() {
+    // Frame 0 is this function, frame 1 our override, frame 2 the caller.
+    const caller = new Error().stack.split('\n')[2] ?? '';
+    return OVERVIEW_CALLERS.some(file => caller.includes(file));
+}
+
+/**
+ * The monitor's area minus the top bar, ignoring any other struts (docks).
+ *
+ * @param {number} monitorIndex
+ * @returns {Mtk.Rectangle|null}
+ */
+function overviewArea(monitorIndex) {
+    const {layoutManager} = Main;
+    const monitor = layoutManager.monitors[monitorIndex];
+    if (!monitor)
+        return null;
+
+    let {x, y, width, height} = monitor;
+    const {panelBox} = layoutManager;
+    if (monitorIndex === layoutManager.primaryIndex && panelBox.visible) {
+        const panelHeight = panelBox.height;
+        if (panelBox.y <= monitor.y) {
+            y += panelHeight;
+            height -= panelHeight;
+        } else if (panelBox.y + panelHeight >= monitor.y + monitor.height) {
+            height -= panelHeight;
+        }
+    }
+    return new Mtk.Rectangle({x, y, width, height});
+}
 
 export default class SmoothOverviewExtension extends Extension {
+    // GNOME Shell can call enable() or disable() twice in a row when the
+    // enabled-extensions list changes quickly (each change is handled
+    // asynchronously), so both are written to be safe to repeat.
     enable() {
-        console.log(`[Smooth Overview] Injecting universal Overview workArea bypass...`);
-
-        // 1. Save the original GNOME function
-        originalGetWorkArea = Main.layoutManager.getWorkAreaForMonitor;
-
-        // 2. Intercept the function
-        Main.layoutManager.getWorkAreaForMonitor = function(monitorIndex) {
-            let rect = originalGetWorkArea.call(this, monitorIndex);
-
-            // 3. THE SNEAKY PART: Catch the static overview AND the slide animation
-            const stack = new Error().stack;
-            if (stack.includes('workspace.js') ||
-                stack.includes('workspaceAnimation.js') ||
-                stack.includes('overviewControls.js')) {
-
-                rect = rect.copy();
-                const monitor = this.monitors[monitorIndex];
-
-                // 4. THE PANEL MATH: Check if this monitor has the top panel
-                const isPrimary = (monitorIndex === Main.layoutManager.primaryIndex);
-                const panelHeight = (isPrimary && Main.panel) ? Main.panel.height : 0;
-
-                // Force all Overview math to use the monitor bounds MINUS the top panel
-                rect.x = monitor.x;
-                rect.y = monitor.y + panelHeight;
-                rect.width = monitor.width;
-                rect.height = monitor.height - panelHeight;
-            }
-
-            return rect;
-        };
-
-        // 5. THE FIX: Force GNOME to dump its layout cache and apply our new math instantly
-        if (global && global.display) {
-            global.display.emit('workareas-changed');
-        }
+        if (this._injections)
+            return;
+        this._injections = new InjectionManager();
+        this._injections.overrideMethod(Layout.LayoutManager.prototype, 'getWorkAreaForMonitor',
+            original => function (monitorIndex) {
+                const workArea = original.call(this, monitorIndex);
+                if (!calledFromOverview())
+                    return workArea;
+                return overviewArea(monitorIndex) ?? workArea;
+            });
+        this._refresh();
     }
 
     disable() {
-        console.log(`[Smooth Overview] Restoring original workArea behavior...`);
+        if (!this._injections)
+            return;
+        this._injections.clear();
+        this._injections = null;
+        this._refresh();
+    }
 
-        // 6. Put everything back to normal
-        if (originalGetWorkArea) {
-            Main.layoutManager.getWorkAreaForMonitor = originalGetWorkArea;
-            originalGetWorkArea = null;
-        }
-
-        // 7. THE FIX: Force GNOME to dump its layout cache and revert to standard math
-        if (global && global.display) {
-            global.display.emit('workareas-changed');
-        }
+    // The overview and the top bar cache the work area and only re-read it
+    // when the work areas change, so tell them they did. This is what makes enabling and
+    // disabling take effect without logging out.
+    _refresh() {
+        global.display.emit('workareas-changed');
     }
 }
