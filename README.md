@@ -10,9 +10,11 @@ Smooth Overview makes both use the whole screen below the top bar instead. Windo
 
 The overview and the top bar ask GNOME Shell for the monitor's *work area* (the screen minus panels and docks). Smooth Overview answers those requests from the overview's files (`workspace.js`, `overviewControls.js`) and the top bar (`panel.js`) with the monitor minus the top bar. Dash to Dock's own overview adjustments (which would otherwise push the search box over by the dock's width) are treated the same way. Every other caller, including Dash to Dock placing the dock itself, gets the real work area. Turning the extension on or off takes effect immediately; no logout needed.
 
-It only steps in while Dash to Dock (or Ubuntu Dock) runs with a dock that stops short of the screen edges, that is, not in "panel mode" (extend-height). With an edge-to-edge dock, or no dock, it changes nothing. It follows the dock's settings live.
-
 Supports GNOME Shell 49, 50 and 51.
+
+## Settings
+
+**Only when the dock is floating** (off by default). When off, Smooth Overview is always on. When on, it only steps in while Dash to Dock (or Ubuntu Dock) shows a dock that stops short of the screen edges, that is, not in "panel mode" (extend-height); with an edge-to-edge dock it changes nothing. It follows the setting and the dock's own settings live. If neither dock is running, the switch is greyed out and Smooth Overview stays on.
 
 ## Install
 
