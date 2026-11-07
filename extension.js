@@ -121,12 +121,14 @@ function dockSettings(dock) {
 }
 
 /*
- * The overview only needs filling in behind a dock that stops short of the
- * screen's edges (a floating or centred dock). A dock that runs edge to
- * edge (Dash to Dock's "panel mode", extend-height) already looks right
- * with GNOME's own overview, so the extension stays out of the way then,
- * and whenever no dock is running. It follows the dock live: turning the
- * dock on or off, or changing its panel mode, takes effect at once.
+ * By default the extension is always on. With the follow-dash-to-dock
+ * setting on, it only fills in the overview behind a dock that stops short
+ * of the screen's edges (a floating or centred dock): a dock that runs edge
+ * to edge (Dash to Dock's "panel mode", extend-height) already looks right
+ * with GNOME's own overview, so the extension stays out of the way then.
+ * When no dock is running the setting has nothing to follow and the
+ * extension is on. It all follows live: changing the setting, turning the
+ * dock on or off, or changing its panel mode takes effect at once.
  */
 export default class SmoothOverviewExtension extends Extension {
     // GNOME Shell can call enable() or disable() twice in a row when the
@@ -135,6 +137,9 @@ export default class SmoothOverviewExtension extends Extension {
     enable() {
         if (this._stateId)
             return;
+        this._settings = this.getSettings();
+        this._followId = this._settings.connect('changed::follow-dash-to-dock',
+            () => this._update());
         this._stateId = Main.extensionManager.connect('extension-state-changed',
             (_manager, extension) => {
                 if (DOCKS.includes(extension.uuid))
@@ -148,7 +153,10 @@ export default class SmoothOverviewExtension extends Extension {
             return;
         Main.extensionManager.disconnect(this._stateId);
         this._stateId = 0;
-        this._unwatchSettings();
+        this._settings.disconnect(this._followId);
+        this._followId = 0;
+        this._settings = null;
+        this._unwatchDockSettings();
         this._setActive(false);
     }
 
@@ -157,25 +165,27 @@ export default class SmoothOverviewExtension extends Extension {
         const dock = DOCKS.map(uuid => Main.extensionManager.lookup(uuid))
             .find(extension => extension?.state === ACTIVE);
         if (dock?.uuid !== this._dockUuid) {
-            this._unwatchSettings();
+            this._unwatchDockSettings();
             this._dockUuid = dock?.uuid ?? null;
-            this._settings = dock ? dockSettings(dock) : null;
-            this._settingsId = this._settings?.connect('changed::extend-height',
+            this._dockSettings = dock ? dockSettings(dock) : null;
+            this._dockSettingsId = this._dockSettings?.connect('changed::extend-height',
                 () => this._update()) ?? 0;
         }
         this._update();
     }
 
-    _unwatchSettings() {
-        if (this._settingsId)
-            this._settings.disconnect(this._settingsId);
-        this._settingsId = 0;
-        this._settings = null;
+    _unwatchDockSettings() {
+        if (this._dockSettingsId)
+            this._dockSettings.disconnect(this._dockSettingsId);
+        this._dockSettingsId = 0;
+        this._dockSettings = null;
         this._dockUuid = null;
     }
 
     _update() {
-        this._setActive(Boolean(this._settings) && !this._settings.get_boolean('extend-height'));
+        const followDock = this._settings.get_boolean('follow-dash-to-dock') &&
+            Boolean(this._dockSettings);
+        this._setActive(!followDock || !this._dockSettings.get_boolean('extend-height'));
     }
 
     _setActive(active) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.smooth-overview"
+          path="/org/gnome/shell/extensions/smooth-overview/">
+    <key name="follow-dash-to-dock" type="b">
+      <default>false</default>
+      <summary>Only when the dock is floating</summary>
+      <description>Only fill in the overview while Dash to Dock (or Ubuntu Dock) shows a dock that doesn't reach the screen edges. When off, or when neither dock is running, the extension is always on.</description>
+    </key>
+  </schema>
+</schemalist>
