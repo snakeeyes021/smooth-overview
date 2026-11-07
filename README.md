@@ -1,5 +1,7 @@
 # Smooth Overview
 
+![Platform](https://img.shields.io/badge/Platform-GNOME%20Shell%20Extension-blue) ![Language](https://img.shields.io/badge/Language-JavaScript-F7DF1E) ![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-49%20%7C%2050%20%7C%2051-3584e4) ![License](https://img.shields.io/badge/License-GPL%202.0-blue)
+
 A GNOME Shell extension that lets the overview fill the screen behind a fixed dock.
 
 With Dash to Dock (or another dock) set to stay visible, GNOME sizes the overview to the space beside the dock. The wallpaper is cut off at the dock's edge, and the workspaces jump sideways as the overview opens. GNOME also centres the top bar's clock in the space beside the dock rather than on the screen.
