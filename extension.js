@@ -18,7 +18,10 @@
 
 import Mtk from 'gi://Mtk';
 
+import Gio from 'gi://Gio';
+
 import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
+import {ExtensionState} from 'resource:///org/gnome/shell/misc/extensionUtils.js';
 import * as Layout from 'resource:///org/gnome/shell/ui/layout.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
@@ -95,29 +98,113 @@ function overviewArea(monitorIndex) {
     return new Mtk.Rectangle({x, y, width, height});
 }
 
+// The docks whose settings say whether the dock reaches the screen edges.
+// Ubuntu Dock is a fork of Dash to Dock with the same settings schema.
+const DOCKS = ['dash-to-dock@micxgx.gmail.com', 'ubuntu-dock@ubuntu.com'];
+const DOCK_SCHEMA = 'org.gnome.shell.extensions.dash-to-dock';
+const ACTIVE = ExtensionState.ACTIVE ?? ExtensionState.ENABLED;
+
+/**
+ * Dash to Dock's settings, from its own schemas folder or the system's.
+ *
+ * @param {object} dock the dock's extension object
+ * @returns {Gio.Settings|null}
+ */
+function dockSettings(dock) {
+    const dir = dock.dir?.get_child('schemas');
+    const parent = Gio.SettingsSchemaSource.get_default();
+    let source = parent;
+    if (dir?.query_exists(null))
+        source = Gio.SettingsSchemaSource.new_from_directory(dir.get_path(), parent, false);
+    const schema = source?.lookup(DOCK_SCHEMA, true);
+    return schema ? new Gio.Settings({settings_schema: schema}) : null;
+}
+
+/*
+ * The follow-dash-to-dock setting is on by default. With it on, the
+ * extension only fills in the overview behind a dock that stops short
+ * of the screen's edges (a floating or centred dock): a dock that runs edge
+ * to edge (Dash to Dock's "panel mode", extend-height) already looks right
+ * with GNOME's own overview, so the extension stays out of the way then.
+ * With the setting off, or when no dock is running (nothing to follow),
+ * the extension is always on. It all follows live: changing the setting,
+ * turning the dock on or off, or changing its panel mode takes effect at
+ * once.
+ */
 export default class SmoothOverviewExtension extends Extension {
     // GNOME Shell can call enable() or disable() twice in a row when the
     // enabled-extensions list changes quickly (each change is handled
     // asynchronously), so both are written to be safe to repeat.
     enable() {
-        if (this._injections)
+        if (this._stateId)
             return;
-        this._injections = new InjectionManager();
-        this._injections.overrideMethod(Layout.LayoutManager.prototype, 'getWorkAreaForMonitor',
-            original => function (monitorIndex) {
-                const workArea = original.call(this, monitorIndex);
-                if (!calledFromOverview())
-                    return workArea;
-                return overviewArea(monitorIndex) ?? workArea;
+        this._settings = this.getSettings();
+        this._followId = this._settings.connect('changed::follow-dash-to-dock',
+            () => this._update());
+        this._stateId = Main.extensionManager.connect('extension-state-changed',
+            (_manager, extension) => {
+                if (DOCKS.includes(extension.uuid))
+                    this._watchDock();
             });
-        this._refresh();
+        this._watchDock();
     }
 
     disable() {
-        if (!this._injections)
+        if (!this._stateId)
             return;
-        this._injections.clear();
-        this._injections = null;
+        Main.extensionManager.disconnect(this._stateId);
+        this._stateId = 0;
+        this._settings.disconnect(this._followId);
+        this._followId = 0;
+        this._settings = null;
+        this._unwatchDockSettings();
+        this._setActive(false);
+    }
+
+    // Find the running dock, if any, and follow its panel-mode setting.
+    _watchDock() {
+        const dock = DOCKS.map(uuid => Main.extensionManager.lookup(uuid))
+            .find(extension => extension?.state === ACTIVE);
+        if (dock?.uuid !== this._dockUuid) {
+            this._unwatchDockSettings();
+            this._dockUuid = dock?.uuid ?? null;
+            this._dockSettings = dock ? dockSettings(dock) : null;
+            this._dockSettingsId = this._dockSettings?.connect('changed::extend-height',
+                () => this._update()) ?? 0;
+        }
+        this._update();
+    }
+
+    _unwatchDockSettings() {
+        if (this._dockSettingsId)
+            this._dockSettings.disconnect(this._dockSettingsId);
+        this._dockSettingsId = 0;
+        this._dockSettings = null;
+        this._dockUuid = null;
+    }
+
+    _update() {
+        const followDock = this._settings.get_boolean('follow-dash-to-dock') &&
+            Boolean(this._dockSettings);
+        this._setActive(!followDock || !this._dockSettings.get_boolean('extend-height'));
+    }
+
+    _setActive(active) {
+        if (active === Boolean(this._injections))
+            return;
+        if (active) {
+            this._injections = new InjectionManager();
+            this._injections.overrideMethod(Layout.LayoutManager.prototype, 'getWorkAreaForMonitor',
+                original => function (monitorIndex) {
+                    const workArea = original.call(this, monitorIndex);
+                    if (!calledFromOverview())
+                        return workArea;
+                    return overviewArea(monitorIndex) ?? workArea;
+                });
+        } else {
+            this._injections.clear();
+            this._injections = null;
+        }
         this._refresh();
     }
 
