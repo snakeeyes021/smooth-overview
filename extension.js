@@ -121,14 +121,15 @@ function dockSettings(dock) {
 }
 
 /*
- * By default the extension is always on. With the follow-dash-to-dock
- * setting on, it only fills in the overview behind a dock that stops short
+ * The follow-dash-to-dock setting is on by default. With it on, the
+ * extension only fills in the overview behind a dock that stops short
  * of the screen's edges (a floating or centred dock): a dock that runs edge
  * to edge (Dash to Dock's "panel mode", extend-height) already looks right
  * with GNOME's own overview, so the extension stays out of the way then.
- * When no dock is running the setting has nothing to follow and the
- * extension is on. It all follows live: changing the setting, turning the
- * dock on or off, or changing its panel mode takes effect at once.
+ * With the setting off, or when no dock is running (nothing to follow),
+ * the extension is always on. It all follows live: changing the setting,
+ * turning the dock on or off, or changing its panel mode takes effect at
+ * once.
  */
 export default class SmoothOverviewExtension extends Extension {
     // GNOME Shell can call enable() or disable() twice in a row when the
