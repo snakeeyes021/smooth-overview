@@ -5,7 +5,7 @@
     <key name="follow-dash-to-dock" type="b">
       <default>true</default>
       <summary>Only when the dock is floating</summary>
-      <description>Only fill in the overview while Dash to Dock (or Ubuntu Dock) shows a dock that doesn't reach the screen edges. When off, or when neither dock is running, the extension is always on.</description>
+      <description>Only fill in the overview while Dash to Dock (or Ubuntu Dock) shows a dock that doesn't reach the screen edges. When off, or when neither dock is running, the extension is always on, except while Dash to Panel runs.</description>
     </key>
   </schema>
 </schemalist>

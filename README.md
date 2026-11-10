@@ -22,6 +22,8 @@ Supports GNOME Shell 49, 50 and 51.
 
 **Only when the dock is floating** (on by default). When on, Smooth Overview only steps in while Dash to Dock (or Ubuntu Dock) shows a dock that stops short of the screen edges, that is, not in "panel mode" (extend-height); with an edge-to-edge dock it changes nothing. When off, Smooth Overview is always on. It follows the setting and the dock's own settings live. If neither dock is running, the switch is greyed out and Smooth Overview stays on.
 
+**With Dash to Panel**, Smooth Overview steps aside whatever the setting: Dash to Panel replaces the top bar with a taskbar that always reserves its edge, and GNOME's own overview already fits it exactly.
+
 ## Install
 
 From a checkout:

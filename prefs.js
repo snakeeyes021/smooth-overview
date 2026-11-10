@@ -25,6 +25,8 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 // The same docks extension.js follows. Ubuntu Dock is a fork of Dash to
 // Dock with the same settings.
 const DOCKS = ['dash-to-dock@micxgx.gmail.com', 'ubuntu-dock@ubuntu.com'];
+// While Dash to Panel runs, the extension steps aside (see extension.js).
+const PANELS = ['dash-to-panel@jderose9.github.com'];
 
 // Preferences run in their own process, so they ask GNOME Shell over D-Bus
 // whether a dock is running.
@@ -36,6 +38,7 @@ const STATE_ACTIVE = 1;
 
 const FOLLOW_SUBTITLE = "Follows Dash to Dock: on when the dock doesn't reach the screen edges";
 const NO_DOCK_SUBTITLE = "Needs Dash to Dock, which isn't turned on. Until then this is always on";
+const PANEL_SUBTITLE = 'Off while Dash to Panel is on: GNOME already fits the overview to its taskbar';
 
 export default class SmoothOverviewPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -58,9 +61,13 @@ export default class SmoothOverviewPreferences extends ExtensionPreferences {
         // being turned on or off while the window is open.
         const running = new Set();
         const show = () => {
-            const available = running.size > 0;
+            const panel = PANELS.some(uuid => running.has(uuid));
+            const available = !panel && DOCKS.some(uuid => running.has(uuid));
             row.sensitive = available;
-            row.subtitle = available ? FOLLOW_SUBTITLE : NO_DOCK_SUBTITLE;
+            if (panel)
+                row.subtitle = PANEL_SUBTITLE;
+            else
+                row.subtitle = available ? FOLLOW_SUBTITLE : NO_DOCK_SUBTITLE;
         };
         const note = (uuid, state) => {
             if (state?.state?.unpack() === STATE_ACTIVE)
@@ -75,7 +82,7 @@ export default class SmoothOverviewPreferences extends ExtensionPreferences {
             'ExtensionStateChanged', SHELL_PATH, null, Gio.DBusSignalFlags.NONE,
             (_bus, _sender, _path, _iface, _signal, params) => {
                 const [uuid, state] = params.deepUnpack();
-                if (DOCKS.includes(uuid))
+                if (DOCKS.includes(uuid) || PANELS.includes(uuid))
                     note(uuid, state);
             });
         window.connect('close-request', () => {
@@ -84,7 +91,7 @@ export default class SmoothOverviewPreferences extends ExtensionPreferences {
         });
 
         show();
-        for (const uuid of DOCKS) {
+        for (const uuid of [...DOCKS, ...PANELS]) {
             bus.call(SHELL_NAME, SHELL_PATH, SHELL_IFACE, 'GetExtensionInfo',
                 new GLib.Variant('(s)', [uuid]), new GLib.VariantType('(a{sv})'),
                 Gio.DBusCallFlags.NONE, -1, null, (_bus, result) => {

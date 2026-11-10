@@ -104,6 +104,13 @@ const DOCKS = ['dash-to-dock@micxgx.gmail.com', 'ubuntu-dock@ubuntu.com'];
 const DOCK_SCHEMA = 'org.gnome.shell.extensions.dash-to-dock';
 const ACTIVE = ExtensionState.ACTIVE ?? ExtensionState.ENABLED;
 
+// Dash to Panel replaces the top bar with its own taskbar, which always
+// reserves its screen edge. GNOME's overview already fits that exactly, and
+// the overview's wallpaper is scaled for the real work area, so Smooth
+// Overview steps aside while it runs (otherwise the wallpaper sits a
+// taskbar's height off while the overview opens and closes, then jumps).
+const PANELS = ['dash-to-panel@jderose9.github.com'];
+
 /**
  * Dash to Dock's settings, from its own schemas folder or the system's.
  *
@@ -127,7 +134,8 @@ function dockSettings(dock) {
  * to edge (Dash to Dock's "panel mode", extend-height) already looks right
  * with GNOME's own overview, so the extension stays out of the way then.
  * With the setting off, or when no dock is running (nothing to follow),
- * the extension is always on. It all follows live: changing the setting,
+ * the extension is always on. Either way, it steps aside while Dash to
+ * Panel runs (see PANELS). It all follows live: changing the setting,
  * turning the dock on or off, or changing its panel mode takes effect at
  * once.
  */
@@ -143,7 +151,7 @@ export default class SmoothOverviewExtension extends Extension {
             () => this._update());
         this._stateId = Main.extensionManager.connect('extension-state-changed',
             (_manager, extension) => {
-                if (DOCKS.includes(extension.uuid))
+                if (DOCKS.includes(extension.uuid) || PANELS.includes(extension.uuid))
                     this._watchDock();
             });
         this._watchDock();
@@ -184,6 +192,10 @@ export default class SmoothOverviewExtension extends Extension {
     }
 
     _update() {
+        if (PANELS.some(uuid => Main.extensionManager.lookup(uuid)?.state === ACTIVE)) {
+            this._setActive(false);
+            return;
+        }
         const followDock = this._settings.get_boolean('follow-dash-to-dock') &&
             Boolean(this._dockSettings);
         this._setActive(!followDock || !this._dockSettings.get_boolean('extend-height'));
