@@ -213,7 +213,16 @@ export default class SmoothOverviewExtension extends Extension {
                         return workArea;
                     return overviewArea(monitorIndex) ?? workArea;
                 });
+            // When a monitor is plugged in or out, GNOME can announce the new
+            // work areas before its own list of monitors (which our area is
+            // worked out from) is updated, so the overview would keep areas
+            // for the old monitors. Have it read them again once the list
+            // is up to date.
+            this._monitorsId = Main.layoutManager.connect('monitors-changed',
+                () => this._refresh());
         } else {
+            Main.layoutManager.disconnect(this._monitorsId);
+            this._monitorsId = 0;
             this._injections.clear();
             this._injections = null;
         }
