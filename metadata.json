@@ -1,7 +1,7 @@
 {
   "uuid": "smooth-overview@redfoxlabs.tech",
   "name": "Smooth Overview",
-  "description": "Lets the overview fill the screen behind a fixed dock.\n\nWith Dash to Dock (or another dock) set to stay visible, GNOME shrinks the overview to the space beside the dock, so the background is cut off and the workspaces jump as the overview opens. This extension makes the overview use the whole screen below the top bar instead, and keeps the top bar's clock centred on the screen rather than on the space beside the dock. Windows still maximize and tile around the dock as before.",
+  "description": "Lets the overview fill the screen behind a fixed dock.\n\nWith Dash to Dock (or another dock) set to stay visible, GNOME shrinks the overview to the space beside the dock, so the background is cut off and the workspaces jump as the overview opens. This extension makes the overview use the whole screen below the top bar instead, and keeps the top bar's clock centred on the screen rather than on the space beside the dock. Windows still maximize and tile around the dock as before, unless you turn on \"Maximized windows cover a floating dock\": then a maximized window fills the screen below the top bar and the floating dock hides over it, while tiling stays as it was.",
   "settings-schema": "org.gnome.shell.extensions.smooth-overview",
   "url": "https://github.com/snakeeyes021/smooth-overview",
   "shell-version": [

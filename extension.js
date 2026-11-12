@@ -19,6 +19,8 @@
 import Mtk from 'gi://Mtk';
 
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import St from 'gi://St';
 
 import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {ExtensionState} from 'resource:///org/gnome/shell/misc/extensionUtils.js';
@@ -71,6 +73,77 @@ function calledFromOverview() {
     const name = caller.slice(0, caller.indexOf('@'));
     return DASH_TO_DOCK_OVERVIEW_FUNCTIONS.some(fn => name === fn || name.startsWith(`${fn}/`));
 }
+
+// Tiling Shell builds its tiles from the work area. While a maximized window
+// may cover a floating dock (see maximize-over-floating-dock), the dock
+// reserves no space, so Tiling Shell's lookups get the area beside the dock
+// instead: the area its tiles had before, so tiling doesn't change.
+const TILING_SHELL_DIR = '/tilingshell@ferrarodomenico.com/';
+
+/**
+ * Whether the function that called getWorkAreaForMonitor() is Tiling Shell's.
+ *
+ * @returns {boolean}
+ */
+function calledFromTilingShell() {
+    const caller = new Error().stack.split('\n')[2] ?? '';
+    return caller.includes(TILING_SHELL_DIR);
+}
+
+/**
+ * Dash to Dock's docks (one per monitor it shows on).
+ *
+ * @returns {object[]}
+ */
+function docks() {
+    return Main.layoutManager.uiGroup.get_children()
+        .filter(actor => actor.name === 'dashtodockContainer' && actor._staticBox);
+}
+
+/**
+ * The work area as it would be if the monitor's docks reserved their space:
+ * each dock's box (with the gap around it) taken off its side.
+ *
+ * @param {number} monitorIndex
+ * @param {Mtk.Rectangle} workArea
+ * @returns {Mtk.Rectangle}
+ */
+function areaBesideDocks(monitorIndex, workArea) {
+    let x1 = workArea.x, y1 = workArea.y;
+    let x2 = workArea.x + workArea.width, y2 = workArea.y + workArea.height;
+    for (const dock of docks()) {
+        if (dock.monitorIndex !== monitorIndex)
+            continue;
+        const box = dock._staticBox;
+        switch (dock._position) {
+        case St.Side.LEFT:
+            x1 = Math.max(x1, Math.round(box.x2));
+            break;
+        case St.Side.RIGHT:
+            x2 = Math.min(x2, Math.round(box.x1));
+            break;
+        case St.Side.TOP:
+            y1 = Math.max(y1, Math.round(box.y2));
+            break;
+        case St.Side.BOTTOM:
+            y2 = Math.min(y2, Math.round(box.y1));
+            break;
+        }
+    }
+    return new Mtk.Rectangle({x: x1, y: y1, width: Math.max(0, x2 - x1), height: Math.max(0, y2 - y1)});
+}
+
+// The Dash to Dock settings maximize-over-floating-dock takes over while the
+// dock floats: the dock reserves no space (so a maximized window fills the
+// screen below the top bar), hides while a maximized window overlaps it,
+// and comes back when the pointer is pushed against its edge. The user's own
+// values are kept in saved-dock-settings and put back afterwards.
+const DOCK_TAKEOVER = {
+    'dock-fixed': new GLib.Variant('b', false),
+    'intellihide': new GLib.Variant('b', true),
+    'intellihide-mode': new GLib.Variant('s', 'MAXIMIZED_WINDOWS'),
+    'autohide': new GLib.Variant('b', true),
+};
 
 /**
  * The monitor's area minus the top bar, ignoring any other struts (docks).
@@ -149,6 +222,8 @@ export default class SmoothOverviewExtension extends Extension {
         this._settings = this.getSettings();
         this._followId = this._settings.connect('changed::follow-dash-to-dock',
             () => this._update());
+        this._maximizeId = this._settings.connect('changed::maximize-over-floating-dock',
+            () => this._update());
         this._stateId = Main.extensionManager.connect('extension-state-changed',
             (_manager, extension) => {
                 if (DOCKS.includes(extension.uuid) || PANELS.includes(extension.uuid))
@@ -164,9 +239,12 @@ export default class SmoothOverviewExtension extends Extension {
         this._stateId = 0;
         this._settings.disconnect(this._followId);
         this._followId = 0;
-        this._settings = null;
+        this._settings.disconnect(this._maximizeId);
+        this._maximizeId = 0;
+        this._setTakeover(false);
         this._unwatchDockSettings();
         this._setActive(false);
+        this._settings = null;
     }
 
     // Find the running dock, if any, and follow its panel-mode setting.
@@ -174,6 +252,8 @@ export default class SmoothOverviewExtension extends Extension {
         const dock = DOCKS.map(uuid => Main.extensionManager.lookup(uuid))
             .find(extension => extension?.state === ACTIVE);
         if (dock?.uuid !== this._dockUuid) {
+            // Give the old dock its own settings back before letting go of it.
+            this._setTakeover(false);
             this._unwatchDockSettings();
             this._dockUuid = dock?.uuid ?? null;
             this._dockSettings = dock ? dockSettings(dock) : null;
@@ -193,12 +273,178 @@ export default class SmoothOverviewExtension extends Extension {
 
     _update() {
         if (PANELS.some(uuid => Main.extensionManager.lookup(uuid)?.state === ACTIVE)) {
+            this._setTakeover(false);
             this._setActive(false);
             return;
         }
+        const floating = Boolean(this._dockSettings) &&
+            !this._dockSettings.get_boolean('extend-height');
         const followDock = this._settings.get_boolean('follow-dash-to-dock') &&
             Boolean(this._dockSettings);
-        this._setActive(!followDock || !this._dockSettings.get_boolean('extend-height'));
+        this._setActive(!followDock || floating);
+        this._setTakeover(floating && this._settings.get_boolean('maximize-over-floating-dock'));
+    }
+
+    // maximize-over-floating-dock: while the dock floats, take over the Dash
+    // to Dock settings in DOCK_TAKEOVER, keeping the user's own values to put
+    // back. Anything else that changes them meanwhile (the dock's own
+    // preferences, a layout switcher) becomes the value put back afterwards.
+    _setTakeover(on) {
+        const dockSettings = this._dockSettings;
+        if (on && dockSettings) {
+            if (this._takeoverIds)
+                return;
+            const saved = this._savedDockSettings();
+            if (!saved) {
+                const values = {};
+                for (const key of Object.keys(DOCK_TAKEOVER))
+                    values[key] = dockSettings.get_user_value(key)?.print(true) ?? null;
+                this._settings.set_string('saved-dock-settings', JSON.stringify(values));
+            }
+            this._takeoverIds = Object.keys(DOCK_TAKEOVER).map(key =>
+                dockSettings.connect(`changed::${key}`, () => this._dockSettingChanged(key)));
+            this._watchDockBoxes(true);
+            this._applyTakeover();
+        } else {
+            if (this._takeoverIds) {
+                this._takeoverIds.forEach(id => this._takeoverSettings.disconnect(id));
+                this._takeoverIds = null;
+            }
+            this._watchDockBoxes(false);
+            this._keepDocksStyled(false);
+            if (this._takeoverIdle) {
+                GLib.source_remove(this._takeoverIdle);
+                this._takeoverIdle = 0;
+            }
+            const saved = this._savedDockSettings();
+            if (saved && dockSettings) {
+                this._writingTakeover = true;
+                for (const [key, text] of Object.entries(saved)) {
+                    if (text === null)
+                        dockSettings.reset(key);
+                    else
+                        dockSettings.set_value(key, GLib.Variant.parse(null, text, null, null));
+                }
+                this._writingTakeover = false;
+                this._settings.set_string('saved-dock-settings', '');
+            }
+        }
+        this._takeoverSettings = this._takeoverIds ? dockSettings : null;
+    }
+
+    _savedDockSettings() {
+        const text = this._settings?.get_string('saved-dock-settings');
+        if (!text)
+            return null;
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    _applyTakeover() {
+        this._writingTakeover = true;
+        for (const [key, value] of Object.entries(DOCK_TAKEOVER)) {
+            if (!this._dockSettings.get_value(key).equal(value))
+                this._dockSettings.set_value(key, value);
+        }
+        this._writingTakeover = false;
+    }
+
+    _dockSettingChanged(key) {
+        if (this._writingTakeover || !this._takeoverIds)
+            return;
+        const value = this._dockSettings.get_value(key);
+        if (value.equal(DOCK_TAKEOVER[key]))
+            return;
+        // Someone else set it: keep their value to put back later, and take
+        // the setting over again once they're done.
+        const saved = this._savedDockSettings() ?? {};
+        saved[key] = this._dockSettings.get_user_value(key)?.print(true) ?? null;
+        this._settings.set_string('saved-dock-settings', JSON.stringify(saved));
+        if (!this._takeoverIdle) {
+            this._takeoverIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                this._takeoverIdle = 0;
+                if (this._takeoverIds)
+                    this._applyTakeover();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+    }
+
+    // Dash to Dock styles a dock that reserves its space ("fixed") a little
+    // differently: a small margin on the side facing the windows. Keep that
+    // style while the dock is taken over, so it looks and measures exactly
+    // as before (and Tiling Shell's area beside it doesn't move by a pixel).
+    _keepDocksStyled(on, dock = null) {
+        if (!on) {
+            if (this._dockInjections) {
+                this._dockInjections.clear();
+                this._dockInjections = null;
+                docks().forEach(d => d._resetPosition?.());
+            }
+            return;
+        }
+        if (this._dockInjections || !dock?._resetPosition)
+            return;
+        this._dockInjections = new InjectionManager();
+        const extension = this;
+        this._dockInjections.overrideMethod(Object.getPrototypeOf(dock), '_resetPosition',
+            original => function (...args) {
+                original.call(this, ...args);
+                if (extension._takeoverIds)
+                    this.add_style_class_name('fixed');
+            });
+        docks().forEach(d => d._resetPosition());
+    }
+
+    // While the dock reserves no space, nothing tells Tiling Shell when the
+    // dock's size or place changes (icons shrinking as apps are added, the
+    // dock moving to another side), so announce new work areas then.
+    _watchDockBoxes(on) {
+        if (!on) {
+            if (this._uiGroupId)
+                Main.layoutManager.uiGroup.disconnect(this._uiGroupId);
+            this._uiGroupId = 0;
+            for (const [dock, id] of this._dockBoxIds ?? [])
+                dock.disconnect(id);
+            this._dockBoxIds = null;
+            this._dockBoxes = null;
+            return;
+        }
+        if (this._dockBoxIds)
+            return;
+        this._dockBoxIds = new Map();
+        const watch = dock => {
+            this._keepDocksStyled(true, dock);
+            if (this._dockBoxIds.has(dock))
+                return;
+            this._dockBoxIds.set(dock, dock.connect('notify::allocation', () => this._dockBoxesMoved()));
+            dock.connect('destroy', () => this._dockBoxIds?.delete(dock));
+        };
+        docks().forEach(watch);
+        this._uiGroupId = Main.layoutManager.uiGroup.connect('child-added', (_group, actor) => {
+            if (actor.name === 'dashtodockContainer')
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    if (this._dockBoxIds && actor._staticBox)
+                        watch(actor);
+                    this._dockBoxesMoved();
+                    return GLib.SOURCE_REMOVE;
+                });
+        });
+        this._dockBoxesMoved();
+    }
+
+    _dockBoxesMoved() {
+        const boxes = docks().map(dock => {
+            const box = dock._staticBox;
+            return `${dock.monitorIndex}:${dock._position}:${box.x1},${box.y1},${box.x2},${box.y2}`;
+        }).join(' ');
+        if (boxes === this._dockBoxes)
+            return;
+        this._dockBoxes = boxes;
+        this._refresh();
     }
 
     _setActive(active) {
@@ -206,12 +452,15 @@ export default class SmoothOverviewExtension extends Extension {
             return;
         if (active) {
             this._injections = new InjectionManager();
+            const extension = this;
             this._injections.overrideMethod(Layout.LayoutManager.prototype, 'getWorkAreaForMonitor',
                 original => function (monitorIndex) {
                     const workArea = original.call(this, monitorIndex);
-                    if (!calledFromOverview())
-                        return workArea;
-                    return overviewArea(monitorIndex) ?? workArea;
+                    if (calledFromOverview())
+                        return overviewArea(monitorIndex) ?? workArea;
+                    if (extension._takeoverIds && calledFromTilingShell())
+                        return areaBesideDocks(monitorIndex, workArea);
+                    return workArea;
                 });
             // When a monitor is plugged in or out, GNOME can announce the new
             // work areas before its own list of monitors (which our area is

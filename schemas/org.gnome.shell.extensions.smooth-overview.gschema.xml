@@ -7,5 +7,15 @@
       <summary>Only when the dock is floating</summary>
       <description>Only fill in the overview while Dash to Dock (or Ubuntu Dock) shows a dock that doesn't reach the screen edges. When off, or when neither dock is running, the extension is always on, except while Dash to Panel runs.</description>
     </key>
+    <key name="maximize-over-floating-dock" type="b">
+      <default>false</default>
+      <summary>Maximized windows cover a floating dock</summary>
+      <description>While Dash to Dock (or Ubuntu Dock) shows a dock that doesn't reach the screen edges, a maximized window fills the screen below the top bar, over the dock and its gaps, and the dock hides until the pointer is pushed against its edge. Tiling Shell's tiles keep the area beside the dock. For this, the extension takes over the dock's dock-fixed, intellihide, intellihide-mode and autohide settings while the dock floats, and puts the user's own values back afterwards.</description>
+    </key>
+    <key name="saved-dock-settings" type="s">
+      <default>''</default>
+      <summary>The dock settings to put back (internal)</summary>
+      <description>The user's own values of the Dash to Dock settings taken over by maximize-over-floating-dock, as JSON, while they're taken over.</description>
+    </key>
   </schema>
 </schemalist>

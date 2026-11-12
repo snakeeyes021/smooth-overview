@@ -39,6 +39,8 @@ const STATE_ACTIVE = 1;
 const FOLLOW_SUBTITLE = "Follows Dash to Dock: on when the dock doesn't reach the screen edges";
 const NO_DOCK_SUBTITLE = "Needs Dash to Dock, which isn't turned on. Until then this is always on";
 const PANEL_SUBTITLE = 'Off while Dash to Panel is on: GNOME already fits the overview to its taskbar';
+const MAXIMIZE_SUBTITLE = 'While the dock floats, maximized windows fill the screen below the top bar ' +
+    'and the dock hides over them. Tiling is unchanged';
 
 export default class SmoothOverviewPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -51,8 +53,16 @@ export default class SmoothOverviewPreferences extends ExtensionPreferences {
         });
         settings.bind('follow-dash-to-dock', row, 'active', Gio.SettingsBindFlags.DEFAULT);
 
+        const maximizeRow = new Adw.SwitchRow({
+            title: 'Maximized windows cover a floating dock',
+            subtitle: MAXIMIZE_SUBTITLE,
+        });
+        settings.bind('maximize-over-floating-dock', maximizeRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+
         const group = new Adw.PreferencesGroup();
         group.add(row);
+        group.add(maximizeRow);
         const page = new Adw.PreferencesPage();
         page.add(group);
         window.add(page);
@@ -64,6 +74,7 @@ export default class SmoothOverviewPreferences extends ExtensionPreferences {
             const panel = PANELS.some(uuid => running.has(uuid));
             const available = !panel && DOCKS.some(uuid => running.has(uuid));
             row.sensitive = available;
+            maximizeRow.sensitive = available;
             if (panel)
                 row.subtitle = PANEL_SUBTITLE;
             else
