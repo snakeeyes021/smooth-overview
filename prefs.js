@@ -40,7 +40,7 @@ const FOLLOW_SUBTITLE = "Follows Dash to Dock: on when the dock doesn't reach th
 const NO_DOCK_SUBTITLE = "Needs Dash to Dock, which isn't turned on. Until then this is always on";
 const PANEL_SUBTITLE = 'Off while Dash to Panel is on: GNOME already fits the overview to its taskbar';
 const MAXIMIZE_SUBTITLE = 'While the dock floats, maximized windows fill the screen below the top bar ' +
-    'and the dock hides over them. Tiling is unchanged';
+    'and the dock hides over them. New windows open beside it, and tiling is unchanged';
 
 export default class SmoothOverviewPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {

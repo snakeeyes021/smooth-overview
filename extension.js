@@ -20,6 +20,7 @@ import Mtk from 'gi://Mtk';
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
 import St from 'gi://St';
 
 import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -304,6 +305,7 @@ export default class SmoothOverviewExtension extends Extension {
             this._takeoverIds = Object.keys(DOCK_TAKEOVER).map(key =>
                 dockSettings.connect(`changed::${key}`, () => this._dockSettingChanged(key)));
             this._watchDockBoxes(true);
+            this._watchNewWindows(true);
             this._applyTakeover();
         } else {
             if (this._takeoverIds) {
@@ -311,6 +313,7 @@ export default class SmoothOverviewExtension extends Extension {
                 this._takeoverIds = null;
             }
             this._watchDockBoxes(false);
+            this._watchNewWindows(false);
             this._keepDocksStyled(false);
             if (this._takeoverIdle) {
                 GLib.source_remove(this._takeoverIdle);
@@ -397,6 +400,82 @@ export default class SmoothOverviewExtension extends Extension {
                     this.add_style_class_name('fixed');
             });
         docks().forEach(d => d._resetPosition());
+    }
+
+    // While the dock reserves no space, GNOME places new windows in the whole
+    // screen below the top bar, so one can open partly under the dock. When
+    // a new window first shows, move it (and if it's too big, shrink it)
+    // into the area beside the dock, the area it would have opened in
+    // before. Only ordinary windows, as they first appear: dialogs,
+    // maximized, fullscreen and tiled windows, and anything moved later,
+    // are left alone.
+    _watchNewWindows(on) {
+        if (!on) {
+            if (this._windowCreatedId)
+                global.display.disconnect(this._windowCreatedId);
+            this._windowCreatedId = 0;
+            return;
+        }
+        if (this._windowCreatedId)
+            return;
+        this._windowCreatedId = global.display.connect('window-created', (_display, window) => {
+            if (window.get_window_type() !== Meta.WindowType.NORMAL || window.get_transient_for())
+                return;
+            // Check once the window has drawn its first frame, when its place
+            // is final (an X11 app's own requested position arrives after
+            // the window is first shown).
+            const watch = () => {
+                const actor = window.get_compositor_private();
+                if (!actor)
+                    return false;
+                const id = actor.connect('first-frame', () => {
+                    actor.disconnect(id);
+                    if (this._takeoverIds)
+                        this._keepClearOfDock(window);
+                });
+                return true;
+            };
+            if (!watch()) {
+                GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                    watch();
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
+        });
+    }
+
+    _keepClearOfDock(window) {
+        if (window.fullscreen || window.maximized_horizontally || window.maximized_vertically)
+            return;
+        const monitor = window.get_monitor();
+        if (monitor < 0)
+            return;
+        const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor);
+        const area = areaBesideDocks(monitor, workArea);
+        const frame = window.get_frame_rect();
+        if (frame.x >= area.x && frame.y >= area.y &&
+            frame.x + frame.width <= area.x + area.width &&
+            frame.y + frame.height <= area.y + area.height)
+            return;
+        // Only windows that actually overlap a dock: one placed off to the
+        // side of the screen for another reason is left where it is.
+        const overlapsDock = docks().some(dock => {
+            if (dock.monitorIndex !== monitor)
+                return false;
+            const b = dock._staticBox;
+            return frame.x < b.x2 && frame.x + frame.width > b.x1 &&
+                frame.y < b.y2 && frame.y + frame.height > b.y1;
+        });
+        if (!overlapsDock)
+            return;
+        const width = Math.min(frame.width, area.width);
+        const height = Math.min(frame.height, area.height);
+        const x = Math.min(Math.max(frame.x, area.x), area.x + area.width - width);
+        const y = Math.min(Math.max(frame.y, area.y), area.y + area.height - height);
+        if (width === frame.width && height === frame.height)
+            window.move_frame(true, x, y);
+        else
+            window.move_resize_frame(true, x, y, width, height);
     }
 
     // While the dock reserves no space, nothing tells Tiling Shell when the
